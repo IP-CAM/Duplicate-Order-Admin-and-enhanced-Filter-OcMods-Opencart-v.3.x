@@ -1,0 +1,107 @@
+<modification>
+	<name><![CDATA[Create Duplicate Order]]></name>
+    <code><![CDATA[karley_copy_order]]></code>
+    <version><![CDATA[2.5]]></version>
+    <author><![CDATA[Karley Deutschland GmbH]]></author>
+    <link><![CDATA[https://www.opencart.com/index.php?route=marketplace/extension/info&extension_id=23230]]></link>
+	<file path="admin/language/en-gb/sale/order.php">
+		<operation>
+			<search><![CDATA[// help]]></search>
+			<add position="before"><![CDATA[$_['button_copy']							= "Duplicate";]]></add>
+		</operation> 
+	</file>
+	<file path="admin/view/template/sale/order_info.twig">
+		<operation>
+			<search><![CDATA[<a href="{{ edit }}" data-toggle="tooltip" title="{{ button_edit }}" class="btn btn-primary"><i class="fas fa-pencil-alt"></i></a>]]></search>
+			<add position="replace"><![CDATA[
+			<a href="{{ copy }}" target="_blank" data-toggle="tooltip" onclick="return confirm('Confirm to duplicate this order?')"  title="{{ button_copy }}" class="btn btn-info"><i class="fa fa-copy"></i></a>
+			<a href="{{ edit }}" data-toggle="tooltip" title="{{ button_edit }}" class="btn btn-primary"><i class="fas fa-pencil-alt"></i></a>
+			]]>
+			</add>
+		</operation> 		
+	</file>
+	<file path="admin/view/template/sale/order_list.twig">
+		<operation>
+			<search><![CDATA[<a href="{{ order.order_id }}" class="dropdown-item delete"]]></search>
+			<add position="after"><![CDATA[<a href="{{ order.copy }}" target="_self" class="dropdown-item" onclick="return confirm('Confirm to duplicate this order?')"><i class="fas fa-copy"></i> {{button_copy}}</a>]]>
+			</add>
+		</operation> 		
+	</file>
+	<file path="admin/controller/sale/order.php">
+		<operation>
+			<search><![CDATA['shipping_code' => $result['shipping_code'],]]></search>
+			<add position="after"><![CDATA['copy' => $this->url->link('sale/order/copy', 'user_token=' . $this->session->data['user_token'] . '&order_id=' . $result['order_id'], true),]]></add>
+		</operation> 		
+		<operation>
+			<search><![CDATA[protected function getList() {]]></search>
+			<add position="before"><![CDATA[
+					public function copy(){ 
+						if(isset($this->request->get['order_id'])){
+							$order_id = $this->request->get['order_id'];
+
+						$sql = "CREATE TEMPORARY TABLE tmporder SELECT * FROM `" . DB_PREFIX . "order` WHERE order_id = " . $order_id;
+							$this->db->query($sql);
+						$sql = "ALTER TABLE  `tmporder` CHANGE  `order_id`  `order_id` INT( 11 ) NULL";
+							$this->db->query($sql);
+						$sql = "UPDATE tmporder SET order_id= NULL,order_status_id = 1,date_added = now(),date_modified = now() WHERE order_id = " . $order_id;
+							$this->db->query($sql);
+						$sql = "INSERT INTO `" . DB_PREFIX . "order` SELECT * FROM tmporder";
+							$this->db->query($sql);
+							$next_id = $this->db->getLastId();
+						$sql = "DROP TABLE tmporder";
+							$this->db->query($sql);
+													
+						$sql = "CREATE TEMPORARY TABLE tmporder SELECT * FROM `" . DB_PREFIX . "order_total` WHERE order_id = " . $order_id;
+							$this->db->query($sql);						
+						$sql = "ALTER TABLE  `tmporder` CHANGE  `order_total_id`  `order_total_id` INT( 11 ) NULL";
+							$this->db->query($sql);
+						$sql = "UPDATE tmporder SET order_id= $next_id,order_total_id=NULL WHERE order_id = " . $order_id;
+							$this->db->query($sql);
+						$sql = "INSERT INTO `" . DB_PREFIX . "order_total` SELECT * FROM tmporder WHERE order_id = " . $next_id;
+							$this->db->query($sql);
+						$sql = "DROP TABLE tmporder";
+							$this->db->query($sql);									
+												
+						$result = $this->db->query("SELECT * FROM `" . DB_PREFIX . "order_product` WHERE order_id = " . $order_id);
+						
+						  foreach ($result->rows as $row) {	
+							 
+							$sql = "INSERT INTO `" . DB_PREFIX . "order_product` (order_product_id,order_id,product_id,name,model,quantity,price,total,tax,reward)" 
+							. "VALUES (NULL, '" . $next_id . "','" . $row['product_id'] . "','" . $this->db->escape($row['name']) . "','" . $this->db->escape($row['model']) . "','" . $row['quantity'] . "','" . $row['price'] . "','" . $row['total'] . "','" . $row['tax'] . "','" . $row['reward'] . "')";						
+
+							$this->db->query($sql);
+							
+							$next_product_id = $this->db->getLastId();
+													
+						$sql = "CREATE TEMPORARY TABLE tmporder SELECT * FROM `" . DB_PREFIX . "order_option` WHERE order_product_id = " . $row['order_product_id'];
+							$this->db->query($sql);						
+						$sql = "ALTER TABLE  `tmporder` CHANGE  `order_option_id`  `order_option_id` INT( 11 ) NULL";
+							$this->db->query($sql);
+						$sql = "UPDATE tmporder SET order_id= $next_id,order_option_id=NULL,order_product_id = $next_product_id WHERE order_id = " . $order_id;
+							$this->db->query($sql);
+						$sql = "INSERT INTO `" . DB_PREFIX . "order_option` SELECT * FROM tmporder WHERE order_id = " . $next_id;
+							$this->db->query($sql);
+						$sql = "DROP TABLE tmporder";
+							$this->db->query($sql);	
+						}
+						
+						$this->language->load('sale/order');
+
+						$this->document->setTitle($this->language->get('heading_title'));
+
+						$this->load->model('sale/order');
+
+						$this->getList();
+						}
+						
+					}		
+			]]></add>
+		</operation>
+		<operation>
+			<search><![CDATA[$data['invoice'] = $this->url->link('sale/order/invoice', 'user_token=' . $this->session->data['user_token'] . '&order_id=' . (int)$this->request->get['order_id']);]]></search>
+			<add position="before"><![CDATA[				
+				$data['copy'] = $this->url->link('sale/order/copy', 'user_token=' . $this->session->data['user_token'] . '&order_id=' . (int)$this->request->get['order_id']);
+			]]></add>
+		</operation>
+	</file>
+</modification>
